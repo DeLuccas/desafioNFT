@@ -1,4 +1,5 @@
 import { gql } from "graphql-tag";
+import { GraphQLError } from "graphql";
 import { LRUCache } from "lru-cache";
 import DataLoader from "dataloader";
 import { db, PlanoContratado, Plano, Pessoa } from "./data.js";
@@ -153,6 +154,9 @@ export interface GraphQLContext {
   };
   key: string;
   user?: Pessoa;
+  isAdmin: boolean;
+  authError?: string; // motivo da falha de autenticação
+  hadAuthHeader?: boolean;
 }
 export const createContext = async ({
   req,
@@ -162,17 +166,44 @@ export const createContext = async ({
   const key = (req.headers["x-api-key"] as string) || req.ip || "anon";
   checkRateLimit(key);
   let user: Pessoa | undefined;
+  let authError: string | undefined;
+  const adminPhones = (process.env.ADMIN_PHONES || "")
+    .split(/[,;]\s*/)
+    .filter(Boolean);
   const auth = req.headers.authorization;
+  const hadAuthHeader = !!auth;
   if (auth?.startsWith("Bearer ")) {
     const token = auth.substring(7);
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET || "dev") as any;
       if (decoded?.pessoaId) {
         user = db.pessoas.find((p) => p.id === decoded.pessoaId);
+        if (!user) authError = "usuario_nao_encontrado";
+      } else {
+        authError = "payload_invalido";
       }
-    } catch {}
+    } catch (e: any) {
+      if (e?.name === "TokenExpiredError") authError = "token_expirado";
+      else authError = "token_invalido";
+      if (process.env.LOG_AUTH === "1") {
+        console.error("[AUTH] Falha verificação token:", e?.message);
+      }
+    }
+  } else if (auth) {
+    authError = "formato_autorizacao_invalido"; // header presente mas não Bearer
   }
-  return { loaders: { pessoaLoader, planoLoader }, key, user };
+  if (process.env.LOG_AUTH === "1") {
+    console.log("[AUTH] header=", auth, "user=", user?.id, "erro=", authError);
+  }
+  const isAdmin = !!user && adminPhones.includes(user.telefone);
+  return {
+    loaders: { pessoaLoader, planoLoader },
+    key,
+    user,
+    isAdmin,
+    authError,
+    hadAuthHeader,
+  };
 };
 
 // Armazenamento in-memory de códigos de verificação { telefone: { codigo, exp, tentativas } }
@@ -184,31 +215,66 @@ function gerarCodigo(): string {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 const CODE_TTL_MS = 5 * 60 * 1000; // 5 minutos
+// (logout removido) nenhum controle de tokens revogados mantido em memória
+
+function unauthenticated(ctx?: GraphQLContext) {
+  let motivo = ctx?.authError;
+  let mensagemBase = "Não autenticado";
+  if (motivo === "token_expirado") mensagemBase = "Token expirado";
+  else if (motivo === "token_invalido") mensagemBase = "Token inválido";
+  else if (motivo === "usuario_nao_encontrado")
+    mensagemBase = "Usuário não encontrado";
+  else if (motivo === "payload_invalido")
+    mensagemBase = "Token payload inválido";
+  else if (motivo === "formato_autorizacao_invalido")
+    mensagemBase = "Header Authorization deve usar 'Bearer'";
+  return new GraphQLError(mensagemBase, {
+    extensions: { code: "UNAUTHENTICATED", motivo },
+  });
+}
 
 export const resolvers = {
   Query: {
-    pessoas: (_: unknown, { pagination }: { pagination?: Pagination }) => {
+    pessoas: (
+      _: unknown,
+      { pagination }: { pagination?: Pagination },
+      ctx: GraphQLContext
+    ) => {
+      if (!ctx.user) throw unauthenticated(ctx);
       const cacheKey = "pessoas:" + JSON.stringify(pagination);
       if (responseCache.has(cacheKey)) return responseCache.get(cacheKey);
       const result = paginate(db.pessoas, pagination || {});
       responseCache.set(cacheKey, result);
       return result;
     },
-    pessoa: (_: unknown, { id }: { id: string }) =>
-      db.pessoas.find((p: Pessoa) => p.id == +id),
-    planos: (_: unknown, { pagination }: { pagination?: Pagination }) => {
-      const cacheKey = "planos:" + JSON.stringify(pagination);
+    pessoa: (_: unknown, { id }: { id: string }, ctx: GraphQLContext) => {
+      if (!ctx.user) throw unauthenticated(ctx);
+      return db.pessoas.find((p: Pessoa) => p.id == +id) || null;
+    },
+    planos: (
+      _: unknown,
+      { pagination }: { pagination?: Pagination },
+      ctx: GraphQLContext
+    ) => {
+      if (!ctx.user) throw unauthenticated(ctx);
+      const cacheKey =
+        "planos:" + JSON.stringify(pagination) + ":admin=" + ctx.isAdmin;
       if (responseCache.has(cacheKey)) return responseCache.get(cacheKey);
-      const result = paginate(db.planos, pagination || {});
+      const base = ctx.isAdmin ? db.planos : db.planos.slice(0, 3);
+      const result = paginate(base, pagination || {});
       responseCache.set(cacheKey, result);
       return result;
     },
-    plano: (_: unknown, { id }: { id: string }) =>
-      db.planos.find((p: Plano) => p.id == +id),
+    plano: (_: unknown, { id }: { id: string }, ctx: GraphQLContext) => {
+      if (!ctx.user) throw unauthenticated(ctx);
+      return db.planos.find((p: Plano) => p.id == +id);
+    },
     planosContratados: (
       _: unknown,
-      { status, pagination }: { status?: string; pagination?: Pagination }
+      { status, pagination }: { status?: string; pagination?: Pagination },
+      ctx: GraphQLContext
     ) => {
+      if (!ctx.user) throw unauthenticated(ctx);
       let list = db.planos_contratados as PlanoContratado[];
       if (status) list = list.filter((c) => c.status === status);
       const cacheKey = "contratos:" + status + ":" + JSON.stringify(pagination);
@@ -217,9 +283,16 @@ export const resolvers = {
       responseCache.set(cacheKey, result);
       return result;
     },
-    planoContratado: (_: unknown, { id }: { id: string }) =>
-      db.planos_contratados.find((c: PlanoContratado) => c.id == +id),
-    statusCounts: () => {
+    planoContratado: (
+      _: unknown,
+      { id }: { id: string },
+      ctx: GraphQLContext
+    ) => {
+      if (!ctx.user) throw unauthenticated(ctx);
+      return db.planos_contratados.find((c: PlanoContratado) => c.id == +id);
+    },
+    statusCounts: (_: unknown, __: unknown, ctx: GraphQLContext) => {
+      if (!ctx.user) throw unauthenticated(ctx);
       const counts: Record<string, number> = {};
       for (const c of db.planos_contratados)
         counts[c.status] = (counts[c.status] || 0) + 1;
@@ -228,7 +301,10 @@ export const resolvers = {
         total,
       }));
     },
-    me: (_: unknown, __: unknown, ctx: GraphQLContext) => ctx.user || null,
+    me: (_: unknown, __: unknown, ctx: GraphQLContext) => {
+      if (!ctx.user) throw unauthenticated(ctx);
+      return ctx.user;
+    },
   },
   Mutation: {
     loginTelefone: (_: unknown, { telefone }: { telefone: string }) => {
