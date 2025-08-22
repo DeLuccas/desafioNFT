@@ -1,0 +1,257 @@
+export interface Pessoa {
+  id: number;
+  nome: string;
+  cpf: string;
+  email: string;
+  telefone: string;
+}
+export interface Plano {
+  id: number;
+  nome: string;
+  valor_credito: number;
+  parcelas: number;
+  taxa_adm_percentual: number;
+}
+export type StatusPlano = "ativo" | "contemplado" | "inadimplente" | "quitado";
+export interface PlanoContratado {
+  id: number;
+  pessoa_id: number;
+  plano_id: number;
+  data_contratacao: string;
+  status: StatusPlano;
+  parcelas_pagas: number;
+}
+
+const pessoas = [
+  {
+    id: 1,
+    nome: "Ana Silva",
+    cpf: "123.456.789-00",
+    email: "ana.silva@example.com",
+    telefone: "+55 11 91234-5678",
+  },
+  {
+    id: 2,
+    nome: "Bruno Souza",
+    cpf: "987.654.321-00",
+    email: "bruno.souza@example.com",
+    telefone: "+55 11 99876-5432",
+  },
+  {
+    id: 3,
+    nome: "Carla Mendes",
+    cpf: "111.222.333-44",
+    email: "carla.mendes@example.com",
+    telefone: "+55 21 92345-6789",
+  },
+  {
+    id: 4,
+    nome: "Diego Pereira",
+    cpf: "555.666.777-88",
+    email: "diego.pereira@example.com",
+    telefone: "+55 31 93456-1122",
+  },
+  {
+    id: 5,
+    nome: "Eduarda Lima",
+    cpf: "999.888.777-66",
+    email: "eduarda.lima@example.com",
+    telefone: "+55 41 95678-2211",
+  },
+  {
+    id: 6,
+    nome: "Felipe Costa",
+    cpf: "444.333.222-11",
+    email: "felipe.costa@example.com",
+    telefone: "+55 61 97890-3344",
+  },
+  {
+    id: 7,
+    nome: "Gabriela Rocha",
+    cpf: "222.111.333-55",
+    email: "gabriela.rocha@example.com",
+    telefone: "+55 85 93456-6677",
+  },
+  {
+    id: 8,
+    nome: "Henrique Oliveira",
+    cpf: "666.555.444-33",
+    email: "henrique.oliveira@example.com",
+    telefone: "+55 71 92345-7788",
+  },
+  {
+    id: 9,
+    nome: "Isabela Martins",
+    cpf: "777.888.999-22",
+    email: "isabela.martins@example.com",
+    telefone: "+55 51 95678-8899",
+  },
+  {
+    id: 10,
+    nome: "João Almeida",
+    cpf: "111.999.888-77",
+    email: "joao.almeida@example.com",
+    telefone: "+55 19 91234-4455",
+  },
+];
+const planosDisponiveis = [
+  {
+    id: 101,
+    nome: "Consórcio Auto Básico",
+    valor_credito: 50000,
+    parcelas: 60,
+    taxa_adm_percentual: 15,
+  },
+  {
+    id: 102,
+    nome: "Consórcio Imobiliário Popular",
+    valor_credito: 150000,
+    parcelas: 180,
+    taxa_adm_percentual: 12,
+  },
+  {
+    id: 103,
+    nome: "Consórcio Moto Econômico",
+    valor_credito: 20000,
+    parcelas: 48,
+    taxa_adm_percentual: 18,
+  },
+  {
+    id: 104,
+    nome: "Consórcio Auto Premium",
+    valor_credito: 100000,
+    parcelas: 72,
+    taxa_adm_percentual: 14,
+  },
+  {
+    id: 105,
+    nome: "Consórcio Imobiliário Premium",
+    valor_credito: 300000,
+    parcelas: 200,
+    taxa_adm_percentual: 10,
+  },
+  {
+    id: 106,
+    nome: "Consórcio Serviços",
+    valor_credito: 15000,
+    parcelas: 36,
+    taxa_adm_percentual: 20,
+  },
+  {
+    id: 107,
+    nome: "Consórcio Eletrodomésticos",
+    valor_credito: 10000,
+    parcelas: 24,
+    taxa_adm_percentual: 22,
+  },
+  {
+    id: 108,
+    nome: "Consórcio Auto Executivo",
+    valor_credito: 80000,
+    parcelas: 60,
+    taxa_adm_percentual: 13,
+  },
+  {
+    id: 109,
+    nome: "Consórcio Viagens",
+    valor_credito: 25000,
+    parcelas: 36,
+    taxa_adm_percentual: 19,
+  },
+  {
+    id: 110,
+    nome: "Consórcio Saúde",
+    valor_credito: 5000,
+    parcelas: 12,
+    taxa_adm_percentual: 25,
+  },
+];
+
+const planosContratados = [
+  {
+    id: 1001,
+    pessoa_id: 1,
+    plano_id: 101,
+    data_contratacao: "2023-05-10",
+    status: "ativo",
+    parcelas_pagas: 12,
+  },
+  {
+    id: 1002,
+    pessoa_id: 2,
+    plano_id: 102,
+    data_contratacao: "2022-03-15",
+    status: "contemplado",
+    parcelas_pagas: 40,
+  },
+  {
+    id: 1003,
+    pessoa_id: 3,
+    plano_id: 103,
+    data_contratacao: "2024-01-20",
+    status: "inadimplente",
+    parcelas_pagas: 5,
+  },
+  {
+    id: 1004,
+    pessoa_id: 4,
+    plano_id: 104,
+    data_contratacao: "2023-11-01",
+    status: "ativo",
+    parcelas_pagas: 8,
+  },
+  {
+    id: 1005,
+    pessoa_id: 5,
+    plano_id: 105,
+    data_contratacao: "2021-08-18",
+    status: "contemplado",
+    parcelas_pagas: 55,
+  },
+  {
+    id: 1006,
+    pessoa_id: 6,
+    plano_id: 106,
+    data_contratacao: "2024-02-05",
+    status: "ativo",
+    parcelas_pagas: 3,
+  },
+  {
+    id: 1007,
+    pessoa_id: 7,
+    plano_id: 107,
+    data_contratacao: "2022-09-12",
+    status: "quitado",
+    parcelas_pagas: 24,
+  },
+  {
+    id: 1008,
+    pessoa_id: 8,
+    plano_id: 108,
+    data_contratacao: "2023-07-30",
+    status: "inadimplente",
+    parcelas_pagas: 6,
+  },
+  {
+    id: 1009,
+    pessoa_id: 9,
+    plano_id: 109,
+    data_contratacao: "2024-03-01",
+    status: "ativo",
+    parcelas_pagas: 2,
+  },
+  {
+    id: 1010,
+    pessoa_id: 10,
+    plano_id: 110,
+    data_contratacao: "2022-12-22",
+    status: "quitado",
+    parcelas_pagas: 12,
+  },
+];
+
+export const db = {
+  pessoas: pessoas as Pessoa[],
+  planos: planosDisponiveis as Plano[],
+  planos_contratados: planosContratados as PlanoContratado[],
+};
