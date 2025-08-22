@@ -3,6 +3,7 @@ import { LRUCache } from "lru-cache";
 import DataLoader from "dataloader";
 import { db, PlanoContratado, Plano, Pessoa } from "./data.js";
 import type { Request } from "express";
+import jwt from "jsonwebtoken";
 
 export const responseCache = new LRUCache<string, any>({
   max: 500,
@@ -26,6 +27,15 @@ export function checkRateLimit(key: string) {
 }
 
 export const typeDefs = gql`
+  type AuthRequestResult {
+    telefone: String!
+    mensagem: String!
+    codigoDebug: String
+  }
+  type AuthPayload {
+    token: String!
+    pessoa: Pessoa!
+  }
   type Pessoa {
     id: ID!
     nome: String!
@@ -98,6 +108,14 @@ export const typeDefs = gql`
     ): PlanoContratadoConnection!
     planoContratado(id: ID!): PlanoContratado
     statusCounts: [StatusStat!]!
+    me: Pessoa
+  }
+
+  type Mutation {
+    "Inicia login gerando (fake) um código de 6 dígitos para o telefone informado"
+    loginTelefone(telefone: String!): AuthRequestResult!
+    "Confirma o código recebido e retorna JWT"
+    confirmarCodigo(telefone: String!, codigo: String!): AuthPayload!
   }
 `;
 
@@ -134,6 +152,7 @@ export interface GraphQLContext {
     planoLoader: typeof planoLoader;
   };
   key: string;
+  user?: Pessoa;
 }
 export const createContext = async ({
   req,
@@ -142,8 +161,29 @@ export const createContext = async ({
 }): Promise<GraphQLContext> => {
   const key = (req.headers["x-api-key"] as string) || req.ip || "anon";
   checkRateLimit(key);
-  return { loaders: { pessoaLoader, planoLoader }, key };
+  let user: Pessoa | undefined;
+  const auth = req.headers.authorization;
+  if (auth?.startsWith("Bearer ")) {
+    const token = auth.substring(7);
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || "dev") as any;
+      if (decoded?.pessoaId) {
+        user = db.pessoas.find((p) => p.id === decoded.pessoaId);
+      }
+    } catch {}
+  }
+  return { loaders: { pessoaLoader, planoLoader }, key, user };
 };
+
+// Armazenamento in-memory de códigos de verificação { telefone: { codigo, exp, tentativas } }
+const loginCodes = new Map<
+  string,
+  { codigo: string; exp: number; tentativas: number }
+>();
+function gerarCodigo(): string {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+const CODE_TTL_MS = 5 * 60 * 1000; // 5 minutos
 
 export const resolvers = {
   Query: {
@@ -187,6 +227,50 @@ export const resolvers = {
         status,
         total,
       }));
+    },
+    me: (_: unknown, __: unknown, ctx: GraphQLContext) => ctx.user || null,
+  },
+  Mutation: {
+    loginTelefone: (_: unknown, { telefone }: { telefone: string }) => {
+      const pessoa = db.pessoas.find((p) => p.telefone === telefone);
+      if (!pessoa) throw new Error("Telefone não cadastrado");
+      const codigo = gerarCodigo();
+      loginCodes.set(telefone, {
+        codigo,
+        exp: Date.now() + CODE_TTL_MS,
+        tentativas: 0,
+      });
+      // Em produção: enviar via SMS. Aqui retornamos mensagem e (debug) código.
+      return {
+        telefone,
+        mensagem: "Código enviado (simulado)",
+        codigoDebug: codigo,
+      };
+    },
+    confirmarCodigo: async (
+      _: unknown,
+      { telefone, codigo }: { telefone: string; codigo: string }
+    ) => {
+      const entry = loginCodes.get(telefone);
+      if (!entry) throw new Error("Solicite o código primeiro");
+      if (Date.now() > entry.exp) {
+        loginCodes.delete(telefone);
+        throw new Error("Código expirado");
+      }
+      entry.tentativas++;
+      if (entry.tentativas > 5) {
+        loginCodes.delete(telefone);
+        throw new Error("Muitas tentativas");
+      }
+      if (entry.codigo !== codigo) throw new Error("Código inválido");
+      loginCodes.delete(telefone);
+      const pessoa = db.pessoas.find((p) => p.telefone === telefone)!;
+      const token = jwt.sign(
+        { pessoaId: pessoa.id },
+        process.env.JWT_SECRET || "dev",
+        { expiresIn: "1h" }
+      );
+      return { token, pessoa };
     },
   },
   Pessoa: {
